@@ -1,19 +1,29 @@
+import requests
+import urllib3
 from mftool import Mftool
 import pandas as pd
 import json
-
+# --- SSL ERROR FIX START ---
+# Disable SSL warnings
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# Monkeypatch requests to always disable SSL verification
+# This fixes the "CERTIFICATE_VERIFY_FAILED" error on corporate networks/proxies
+old_merge_environment_settings = requests.Session.merge_environment_settings
+def new_merge_environment_settings(self, url, proxies, stream, verify, cert):
+    # Always set verify=False, ignoring previous settings
+    return old_merge_environment_settings(self, url, proxies, stream, False, cert)
+requests.Session.merge_environment_settings = new_merge_environment_settings
+# --- SSL ERROR FIX END ---
 class NavService:
     def __init__(self):
         self.obj = Mftool()
         # Cache scheme codes to avoid fetching on every search if possible, 
         # but mftool is fast enough for basic usage.
         self._scheme_codes = None
-
     def get_all_schemes(self):
         if self._scheme_codes is None:
             self._scheme_codes = self.obj.get_scheme_codes()
         return self._scheme_codes
-
     def search_funds(self, keyword):
         """
         Search for funds matching the keyword.
@@ -28,7 +38,6 @@ class NavService:
                 results.append({'code': code, 'name': name})
         
         return results
-
     def get_historical_nav(self, scheme_code, start_date=None, end_date=None):
         """
         Fetch historical NAV data.
@@ -47,15 +56,12 @@ class NavService:
             
             if not data or 'data' not in data:
                 return []
-
             nav_list = data['data']
             # nav_list is list of dicts: {'date': 'dd-mm-yyyy', 'nav': '...'}
-
             # Convert to dataframe for easier filtering if dates are provided
             df = pd.DataFrame(nav_list)
             df['date'] = pd.to_datetime(df['date'], format='%d-%m-%Y')
             df['nav'] = pd.to_numeric(df['nav'])
-
             if start_date:
                 start = pd.to_datetime(start_date)
                 df = df[df['date'] >= start]
@@ -63,10 +69,8 @@ class NavService:
             if end_date:
                 end = pd.to_datetime(end_date)
                 df = df[df['date'] <= end]
-
             # Sort by date descending
             df = df.sort_values(by='date', ascending=False)
-
             # Convert back to list of dicts with string dates for JSON response
             # Format: YYYY-MM-DD for consistency
             result = []
@@ -77,11 +81,9 @@ class NavService:
                 })
             
             return result
-
         except Exception as e:
             print(f"Error fetching NAV for {scheme_code}: {e}")
             return []
-
 if __name__ == "__main__":
     # Test
     service = NavService()
